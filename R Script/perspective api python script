@@ -1,0 +1,48 @@
+# -*- coding: utf-8 -*-
+"""
+Spyder Editor
+
+This is a temporary script file.
+"""
+
+from googleapiclient import discovery
+import pandas as pd
+import numpy as np
+import time
+
+data=pd.read_csv('/Users/emmasun/tweets.csv')
+
+datatest=data[0:29682]
+
+API_KEY='AIzaSyA5sDIY_S1m0upPLJ_dWWeRA5Pf2rLwGmM'
+
+# Generates API client object dynamically based on service name and version.
+service = discovery.build('commentanalyzer', 'v1alpha1', developerKey=API_KEY)
+
+
+resultlist=[]
+
+for i in range(29682):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': datatest.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    resultlist.append(toxicityscore)
+
+
+sLength=len(datatest['text'])
+toxicityscorecol=pd.Series(resultlist)
+datatest['toxicity']=toxicityscorecol
+datatest['toxicity'][3]=0
+
+datatest.to_csv("/Users/emmasun/labelled.csv", sep='|')
