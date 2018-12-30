@@ -1,0 +1,234 @@
+---
+title: "Untitled"
+author: "Emma Xuecong Sun"
+date: "11/23/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(devtools)
+install_github("cbail/textnets")
+library(textnets)
+library(tidytext)
+library(tidyverse)
+
+```
+
+```{r}
+sotu_first_speeches <- alltweetsdegotslur %>% group_by(racelabel) %>% slice(1L)
+prepped_sotu <- PrepText(sotu_first_speeches, groupvar = "racelabel", textvar = "cleantext", node_type = "racelabel", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
+
+sotu_text_network <- CreateTextnet(prepped_sotu)
+
+VisTextNet(sotu_text_network, label_degree_cut = 0)
+
+VisTextNetD3(sotu_text_network)
+
+library(htmlwidgets)
+vis <- VisTextNetD3(sotu_text_network, 
+                      prune_cut=.50,
+                      height=1000,
+                      width=1400,
+                      bound=FALSE,
+                      zoom=TRUE,
+                      charge=-30)
+saveWidget(vis, "sotu_textnet.html")
+
+
+
+```
+```{r}
+data("sotu")
+sotu_first_speeches <- sotu %>% group_by(president) %>% slice(1L)
+prepped_sotu <- PrepText(sotu_first_speeches, groupvar = "president", textvar = "sotu_text", node_type = "groups", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
+sotu_text_network <- CreateTextnet(prepped_sotu)
+VisTextNet(sotu_text_network, label_degree_cut = 0)
+VisTextNetD3(sotu_text_network)
+
+library(htmlwidgets)
+vis <- VisTextNetD3(sotu_text_network, 
+                      prune_cut=.50,
+                      height=1000,
+                      width=1400,
+                      bound=FALSE,
+                      zoom=TRUE,
+                      charge=-30)
+saveWidget(vis, "sotu_textnet.html")
+
+```
+
+#white
+#convert to DTM first
+```{r}
+#Tokenize
+tidy_alltweetsdegotslurwhite<- alltweetsdegotslurwhite %>%
+  dplyr::select(created_at,text) %>%
+  unnest_tokens("word",text)
+head(tidy_alltweetsdegotslurwhite)
+
+#other processings
+whitewords=c("white","racist","hillbilli","ass","fuck")
+otherstopwords=c("https","t.co","amp","rt","white","racist","hillbilli","ass","fuck","redneck","i'm","don't","peopl","it'","yee")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurwhite<-tidy_alltweetsdegotslurwhite %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+     
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurwhite$word <- gsub("\\s+","",tidy_alltweetsdegotslurwhite$word)
+library(SnowballC)
+  tidy_alltweetsdegotslurwhite<-tidy_alltweetsdegotslurwhite %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+
+#Change to DTM
+tidy_DTM_white<-
+  tidy_alltweetsdegotslurwhite %>%
+  count(created_at, word) %>%
+  cast_dtm(created_at, word, n)
+
+#inspect DTM
+inspect(tidy_rt_DTM[1:5,3:8])
+
+#run LDA
+tweet_topic_model_white = LDA(tidy_DTM_white, k=3, control = list(seed = 321))
+
+
+#visualization
+tweet_topics_white <- tidy(tweet_topic_model_white, matrix = "beta")  
+#beta is the probability of each word associating with each topic
+
+tweet_top_terms <- 
+  tweet_topics_white %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+tweet_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+#black
+#convert to DTM first
+```{r}
+#Tokenize
+tidy_alltweetsdegotslurblack<- alltweetsdegotslurblack %>%
+  dplyr::select(created_at,text) %>%
+  unnest_tokens("word",text)
+
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt","nigger","coon","ass","don't","it'","call","black","nigga","1")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurblack<-tidy_alltweetsdegotslurblack %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+     
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurblack$word <- gsub("\\s+","",tidy_alltweetsdegotslurblack$word)
+library(SnowballC)
+  tidy_alltweetsdegotslurblack<-tidy_alltweetsdegotslurblack %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+
+#Change to DTM
+tidy_DTM_black<-
+  tidy_alltweetsdegotslurblack %>%
+  count(created_at, word) %>%
+  cast_dtm(created_at, word, n)
+
+#inspect DTM
+#inspect(tidy_rt_DTM[1:5,3:8])
+
+#run LDA
+tweet_topic_model_black = LDA(tidy_DTM_black, k=3, control = list(seed = 321))
+
+
+#visualization
+tweet_topics_black <- tidy(tweet_topic_model_black, matrix = "beta")  
+#beta is the probability of each word associating with each topic
+
+tweet_top_terms <- 
+  tweet_topics_black %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+tweet_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+```
+
+```{r}
+#Tokenize
+tidy_alltweetsdegotslurjewish<- alltweetsdegotslurjewish %>%
+  dplyr::select(created_at,text) %>%
+  unnest_tokens("word",text)
+
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurjewish<-tidy_alltweetsdegotslurjewish %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+     
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurjewish$word <- gsub("\\s+","",tidy_alltweetsdegotslurjewish$word)
+library(SnowballC)
+  tidy_alltweetsdegotslurjewish<-tidy_alltweetsdegotslurjewish %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+
+#Change to DTM
+tidy_DTM_jewish<-
+  tidy_alltweetsdegotslurjewish %>%
+  count(created_at, word) %>%
+  cast_dtm(created_at, word, n)
+
+#inspect DTM
+#inspect(tidy_rt_DTM[1:5,3:8])
+
+#run LDA
+tweet_topic_model_jewish = LDA(tidy_DTM_jewish, k=3, control = list(seed = 321))
+
+
+#visualization
+tweet_topics_jewish <- tidy(tweet_topic_model_jewish, matrix = "beta")  
+#beta is the probability of each word associating with each topic
+
+tweet_top_terms <- 
+  tweet_topics_jewish %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+tweet_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+

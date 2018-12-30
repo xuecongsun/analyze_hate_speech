@@ -1,0 +1,1170 @@
+---
+title: "Combined Analysis"
+author: "Emma Xuecong Sun"
+date: "11/17/2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rtweet)
+library(maps)
+library(tidytext)
+library(topicmodels)
+library(wordcloud)
+```
+
+```{r}
+#credentials
+app_name<-"IDS703_YW"
+consumer_key<-"xWkMxEXgHGThN07IcjYa5W7v1"
+consumer_secret<-"33ezIp2Yb2myVANzqhuULCJSwL1h8FjpWAlPaznOxAbWmXvc4P"
+access_token<-"1038103043626205185-1PMkG3IYJXR7FAMzzfk4anEpvjAEw1"
+access_token_secret<-"UsNyvI4vtvjjUZIyQSUHPo1P819Sa9NJ50f6u7zbhu6Ii"
+
+create_token(app=app_name, consumer_key=consumer_key, consumer_secret=consumer_secret)
+
+```
+
+##Set up for pulling tweets 
+```{r}
+#string up top 3 slur words
+top3slurs=read.csv("../New Project/RSDB top3s.csv")
+head(top3slurs)
+
+top3slurs %>%
+  group_by(Represents) %>%
+  count()
+
+str1='"'
+space=" "
+ORword="OR"
+totalstringloop=''
+for(word in top3slurs$Slur){
+  slurwordstring = paste(str1,word,str1,space, ORword,space,sep="")
+  totalstringloop=paste(totalstringloop,slurwordstring)
+}
+#remove the last OR to get final totalstring
+totalstringloop=substring(totalstringloop,1,nchar(totalstringloop)-3)
+nchar(totalstringloop)
+
+totalstringloop
+
+str1='"'
+space=" "
+ORword="OR"
+reversetotalstringloop=''
+for(i in seq(15,1,-1)){
+  slurwordstring = paste(str1,top3slurs$Slur[i],str1,space, ORword,space,sep="")
+  reversetotalstringloop=paste(reversetotalstringloop,slurwordstring)
+}
+
+reversetotalstringloop
+```
+
+```{r}
+#pull tweets
+17/11
+tweet6 = search_tweets(q=totalstringloop,"lang:en",geocode=lookup_coords("usa"), n=18000, include_rts=FALSE, type="recent", retryonratelimit=TRUE)
+
+20/11
+tweet7=search_tweets(q=totalstringloop,"lang:en",geocode=lookup_coords("usa"), n=18000, include_rts=FALSE, type="recent", retryonratelimit=TRUE)
+
+#20/11 pull reverse string
+tweet7reverse=search_tweets(q=reversetotalstringloop,"lang:en",geocode=lookup_coords("usa"), n=18000, include_rts=FALSE, type="recent", retryonratelimit=TRUE)
+
+
+save(tweet7, file="tweet7.rda")
+save(tweet7reverse, file="tweet7reverse.rda")
+```
+
+##Combined tweets
+```{r}
+#combined and depulicated Joe's 4 days of tweets
+alltweets=rbind(tweet1,tweet2,tweet3,tweet6)
+alltweetsde=unique(alltweets)
+alltweetsde1=alltweets[!duplicated(alltweets),]
+
+save(alltweetsde,file="alltweetsde21.rda")
+
+```
+
+##Tweets-Cleaning
+```{r}
+#Step 1 of tweets cleaning: further processing of tweets'text. Add a column called cleantext
+# Get rid of references to other screennames
+clean_alltweetsdegotslur <- str_replace_all(alltweetsde$text,"@[a-z,A-Z]*","")
+# Get rid of URLs
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur, "https://t.co/[a-z,A-Z,0-9]*","")
+# Get rid of hashtags
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur,"#[a-z,A-Z]*","")
+#get rid of any words starting with_
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur,"_[a-z,A-Z]*","")
+#get rid of any number
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur,"[1-9]*","")
+#get rid of any hypostrophy
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur,"'*","")
+#get rid of any words of less than 3 alphabets/2 words
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur," *\\b[[:alpha:]]{1,3}\\b *","")
+#get rid of any words starting with numbers
+clean_alltweetsdegotslur <- str_replace_all(clean_alltweetsdegotslur,"[0-9]*","")
+
+alltweetsde$cleantext=clean_alltweetsdegotslur
+```
+
+
+```{r}
+#Step 2 of tweets cleaning: loop through tweets' cleantext to check whether the tweet text contains any of the top 3 slur words. If it doesn't contain, we discard that tweet entry. Create a new dataframe called alltweetsdegotslur only containing tweets that have slur words
+newdataframe=alltweetsde
+newdataframe$isRacist=rep(0,nrow(newdataframe))
+
+#capital letter
+for(i in top3slurs$Slur){
+  rownumber=grep(i,newdataframe$cleantext)
+  if(length(rownumber)>0){
+    newdataframe$isRacist[rownumber]=1 
+  }
+}
+
+#not-capital letter
+for(a in top3slurs$Slur){
+  lowerslur=tolower(a)
+  rownumber=grep(lowerslur,newdataframe$cleantext)
+  if(length(rownumber)>0){
+    newdataframe$isRacist[rownumber]=1 
+  }
+}
+
+alltweetsdegotslur=newdataframe %>% filter(isRacist==1)
+```
+
+```{r}
+#step 3 of tweet cleaning - label each tweets its race - whether it's black, white, jewish,asian,
+slurwhite=c("gringo","hillbilly","redneck","Gringo","Hillbilly","Redneck")
+alltweetsdegotslur$white=rep(0,nrow(alltweetsdegotslur))
+
+for(i in slurwhite){
+  rownumber=grep(i,alltweetsdegotslur$cleantext)
+  if(length(rownumber)>0){
+    alltweetsdegotslur$white[rownumber]=1 
+  }
+}
+
+slurjewish=c("zionist","kike","zog","Zionist","Kike","Zog")
+alltweetsdegotslur$jewish=rep(0,nrow(alltweetsdegotslur))
+
+for(i in slurjewish){
+  rownumber=grep(i,alltweetsdegotslur$cleantext)
+  if(length(rownumber)>0){
+    alltweetsdegotslur$jewish[rownumber]=1 
+  }
+}
+
+slurhispan=c("beaner","wetback","spic","Beaner","Wetback","Spic")
+alltweetsdegotslur$hispan=rep(0,nrow(alltweetsdegotslur))
+
+for(i in slurhispan){
+  rownumber=grep(i,alltweetsdegotslur$cleantext)
+  if(length(rownumber)>0){
+    alltweetsdegotslur$hispan[rownumber]=1 
+  }
+}
+
+slurasian=c("chink","gook","chinaman","Chink","Gook","Chinaman")
+alltweetsdegotslur$asian=rep(0,nrow(alltweetsdegotslur))
+
+for(i in slurasian){
+  rownumber=grep(i,alltweetsdegotslur$cleantext)
+  if(length(rownumber)>0){
+    alltweetsdegotslur$asian[rownumber]=1 
+  }
+}
+
+slurblack=c("nigger","coon","mandingo","Nigger","Coon","Mandingo")
+alltweetsdegotslur$black=rep(0,nrow(alltweetsdegotslur))
+
+for(i in slurblack){
+  rownumber=grep(i,alltweetsdegotslur$cleantext)
+  if(length(rownumber)>0){
+    alltweetsdegotslur$black[rownumber]=1 
+  }
+}
+
+countblack=sum(alltweetsdegotslur$black)
+countjewish=sum(alltweetsdegotslur$jewish)
+counthispan=sum(alltweetsdegotslur$hispan)
+countasian=sum(alltweetsdegotslur$asian)
+countblack=sum(alltweetsdegotslur$black)
+
+sum(countblack,countjewish,counthispan,countasian,countblack)
+
+#create a combined racelabel column
+alltweetsdegotslur$racelabel=rep(0,nrow(alltweetsdegotslur))
+alltweetsdegotslur$racelabel[alltweetsdegotslur$white==1]="white"
+alltweetsdegotslur$racelabel[alltweetsdegotslur$jewish==1]="jewish"
+alltweetsdegotslur$racelabel[alltweetsdegotslur$black==1]="black"
+alltweetsdegotslur$racelabel[alltweetsdegotslur$asian==1]="asian"
+alltweetsdegotslur$racelabel[alltweetsdegotslur$hispan==1]="hispanic"
+```
+
+##Basic EDA - Time series
+```{r}
+ts_plot(alltweetsdegotslur,by="hours")+geom_line(stat="identity")+
+  labs(
+    x="time", y="count",
+    title="Frequencies of tweets containing top 3 racial slur words for 5 races across 10 days",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")
+```
+
+##Basic EDA - Map
+```{r}
+#map
+## create lat/lng variables using all available tweet and profile geo-location data
+#lat_lng gives 2 columns of lat and lng for each tweet
+
+rtusaloc <- lat_lng(alltweetsdegotslur)
+
+alltweetsdegotslurblack=alltweetsdegotslur%>%
+  filter(alltweetsdegotslur$black==1)
+rtusalocblack=lat_lng(alltweetsdegotslurblack)
+
+alltweetsdegotslurjewish=alltweetsdegotslur%>%
+  filter(alltweetsdegotslur$jewish==1)
+rtusalocjewish=lat_lng(alltweetsdegotslurjewish)
+
+alltweetsdegotslurhispan=alltweetsdegotslur%>%
+  filter(alltweetsdegotslur$hispan==1)
+rtusalochispan=lat_lng(alltweetsdegotslurhispan)
+
+alltweetsdegotslurasian=alltweetsdegotslur%>%
+  filter(alltweetsdegotslur$asian==1)
+rtusalocasian=lat_lng(alltweetsdegotslurasian)
+
+alltweetsdegotslurwhite=alltweetsdegotslur%>%
+  filter(alltweetsdegotslur$white==1)
+rtusalocwhite=lat_lng(alltweetsdegotslurwhite)
+
+
+
+
+## plot state boundaries
+par(mar = c(0, 0, 0, 0))
+map("state", lwd = .25)
+
+## plot lat and lng points onto state map
+with(rtusalocwhite, points(lng, lat, pch = 20, cex = .75, col = "blue"))
+with(rtusalocblack, points(lng, lat, pch = 20, cex = .75, col = "black"))
+with(rtusalocjewish, points(lng, lat, pch = 20, cex = .75, col = "orange"))
+with(rtusalocasian, points(lng, lat, pch = 20, cex = .75, col = "red"))
+with(rtusalochispan, points(lng, lat, pch = 20, cex = .75, col = "purple"))
+legend("bottomright",legend=c("White", "Jewish", "Asian", "Black", "Hispanic"),
+       col=c("blue", "orange","red","black", "purple"), pch=20, cex=0.75)
+title(main="Location distribution of tweets containing top 3 racial slurs for 5 races")
+
+
+
+
+```
+
+##Toxicity score data explore
+```{r}
+ggplot(data=alltweetsdegotslur,aes(toxicity))+
+  geom_histogram(aes(fill=..count..),breaks=seq(0,1,by=0.05),col="white")+
+  labs(
+    x="tweet toxicity score", y="count",
+    title="Distribution of Toxicity Score of tweets of top 3 racial slur words for 5 races",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")
+
+```
+
+```{r}
+toxic=alltweetsdegotslur[alltweetsdegotslur$toxicity>0.6,]
+toxicwhite=toxic[toxic$white==1,]
+toxicwhiteprob=nrow(toxicwhite)/nrow(toxic)
+
+toxicblack=toxic[toxic$black==1,]
+toxicblackprob=nrow(toxicblack)/nrow(toxic)
+
+toxicasian=toxic[toxic$asian==1,]
+toxicasianprob=nrow(toxicasian)/nrow(toxic)
+
+toxicjewish=toxic[toxic$jewish==1,]
+toxicjewishprob=nrow(toxicjewish)/nrow(toxic)
+
+toxichispan=toxic[toxic$hispan==1,]
+toxichispanprob=nrow(toxichispan)/nrow(toxic)
+
+library(waffle)
+toxicdata=c('white'=toxicwhiteprob*100,'black'=toxicblackprob*100,'asian'=toxicasianprob*100,'jewish'=toxicjewishprob*100,'hispanic'=toxichispanprob*100)
+waffle(toxicdata,title="Proportion of Tweets having >0.6 Toxic Score by Race",colors=c("royalblue4","#404040","#ca0020","pink3","#bababa"))
+
+originalprobwhite=nrow(alltweetsdegotslurwhite)/nrow(alltweetsdegotslur)*100
+originalprobblack=nrow(alltweetsdegotslurblack)/nrow(alltweetsdegotslur)*100
+originalprobjewish=nrow(alltweetsdegotslurjewish)/nrow(alltweetsdegotslur)*100
+originalprobhispan=nrow(alltweetsdegotslurhispan)/nrow(alltweetsdegotslur)*100
+originalprobasian=nrow(alltweetsdegotslurasian)/nrow(alltweetsdegotslur)*100
+originaldata=c('white'=originalprobwhite,'black'=originalprobblack,'asian'=originalprobasian,'jewish'=originalprobjewish,'hispanic'=originalprobhispan)
+
+waffle(originaldata,title="Proportion of Tweets by Race",colors=c("royalblue4","#404040","#ca0020","pink3","#bababa"))
+race=c("white","black","jewish","hispanic","asian")
+prob=data.frame(toxicprob=toxicdata,originalprob=originaldata,race=race)
+library(reshape2)
+probnew=melt(prob)
+ggplot(probnew, aes(x = race, y= value, fill = variable), xlab="Race") +
+geom_bar(stat="identity", width=.5, position = "dodge")+
+  labs(y="proportion in percentage", title="Proportion of Toxic Tweets vs Original Proportion of Tweets by Race")+
+   scale_fill_manual(values = c("#ca0020","#404040"))
+
+```
+
+
+##Basic EDA - Tokenize and Count top words (overall and by race)
+###Overall
+```{r}
+#tokenize
+tidy_alltweetsdegotslur<- alltweetsdegotslur%>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslur$word <- gsub("\\s+","",tidy_alltweetsdegotslur$word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+#count natural top words
+topwordscount=tidy_alltweetsdegotslur %>%
+  count(word) %>%
+  top_n(60) %>%
+  arrange(desc(n))
+  
+
+ggplot(topwordscount, aes(reorder(word,n), n)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2)) + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Frequently Used in Tweets of Racial Slurs",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+#wordcloud
+set.seed(1234)
+wordcloud(words = topwordscount$word, freq = topwordscount$n, min.freq = 1,
+          random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+#remove top racial slurs
+topwordscountnew=topwordscount[7:52,]
+wordcloud(words = topwordscountnew$word, freq = topwordscountnew$n, min.freq = 1,
+          random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+```{r}
+#count frequency of each slur word for each race and rank them
+#create empty dataframe which contains slur word and its count in the 18000 tweets of 3 keywords
+slurvocabday1<-data.frame(vocab = character(nrow(top3slurs)), count=numeric(nrow(top3slurs)), stringsAsFactors = FALSE)
+i=1
+for(each in tolower(top3slurs$Slur)){
+  slurvocabday1$vocab[i]=each
+  rownumber=grep(each,tidy_alltweetsdegotslur$word)
+  slurvocabday1$count[i]=length(rownumber)
+  i=i+1
+}
+
+#Barplot
+slurvocabday1$group=c("white","white","white","jewish","jewish","jewish","hispanic","hispanic","hispanic","asian","asian","asian","black","black","black")
+
+selectedslurvocabday1=slurvocabday1%>%
+  arrange(desc(count))
+
+
+ggplot(selectedslurvocabday1, aes(reorder(vocab,-count), count, fill=factor(group))) + geom_bar(stat="identity")+
+  labs(
+    x="slurvocab", y="count",
+    title="Frequencies of top 3 slurs for each race for 4 days of 18000 tweets",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1))+
+  #scale_fill_brewer(palette = 'Spectral')
+  scale_fill_manual("legend", values = c("white" = "royalblue4", "black" = "#404040", "asian" = "#ca0020","hispanic"="#bababa", "jewish"="pink3"))
+
+```
+
+###Black
+```{r}
+#tokenize for black
+tidy_alltweetsdegotslurblack<- alltweetsdegotslur %>%
+  filter(black==1) %>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurblack<-tidy_alltweetsdegotslurblack %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurblack$word <- gsub("\\s+","",tidy_alltweetsdegotslurblack$word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+tidy_alltweetsdegotslurblack %>%
+  count(word) %>%
+    arrange(desc(n))
+
+#ggplot(df, aes(x=reorder(Seller, Num), y=Avg_Cost)) +
+  geom_bar(stat='identity') +
+  coord_flip()
+ 
+
+```
+
+###Jewish
+```{r}
+#tokenize for jewish
+tidy_alltweetsdegotslurjewish<- alltweetsdegotslur %>%
+  filter(jewish==1) %>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurjewish<-tidy_alltweetsdegotslurjewish %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurjewish$word <- gsub("\\s+","",tidy_alltweetsdegotslurjewish$word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+tidy_alltweetsdegotslurjewish %>%
+  count(word) %>%
+    arrange(desc(n))
+ 
+```
+
+###Hispanic
+```{r}
+#tokenize for hispan
+tidy_alltweetsdegotslurhispan <- alltweetsdegotslur %>%
+  filter(hispan ==1) %>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurhispan <-tidy_alltweetsdegotslurhispan  %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurhispan $word <- gsub("\\s+","",tidy_alltweetsdegotslurhispan $word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+tidy_alltweetsdegotslurhispan  %>%
+  count(word) %>%
+    arrange(desc(n))
+```
+
+###Asian
+```{r}
+#tokenize for asian
+tidy_alltweetsdegotslurasian <- alltweetsdegotslur %>%
+  filter(asian ==1) %>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurasian <-tidy_alltweetsdegotslurasian  %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurasian $word <- gsub("\\s+","",tidy_alltweetsdegotslurasian $word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+tidy_alltweetsdegotslurasian  %>%
+  count(word) %>%
+    arrange(desc(n))
+```
+
+###Black
+```{r}
+#tokenize for black
+tidy_alltweetsdegotslurblack <- alltweetsdegotslur %>%
+  filter(black ==1) %>%
+  dplyr::select(created_at,cleantext) %>%
+  unnest_tokens("word",cleantext)
+
+#other processings
+otherstopwords=c("https","t.co","amp","rt")
+otherstopwords=data.frame(word=otherstopwords,stringsAsFactors = FALSE)
+data("stop_words")
+    tidy_alltweetsdegotslurblack <-tidy_alltweetsdegotslurblack  %>%
+      anti_join(stop_words) %>%
+      anti_join(otherstopwords)
+    
+#tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur[-grep("\\b\\d+\\b", tidy_alltweetsdegotslur$word),]
+tidy_alltweetsdegotslurblack $word <- gsub("\\s+","",tidy_alltweetsdegotslurblack $word)
+library(SnowballC)
+  tidy_alltweetsdegotslur<-tidy_alltweetsdegotslur %>%
+      mutate_at("word", funs(wordStem((.), language="en")))
+
+tidy_alltweetsdegotslurblack  %>%
+  count(word) %>%
+    arrange(desc(n))
+```
+
+##Word-Embedding Analysis
+###Overall
+```{r}
+#word-embedding
+
+alltweetsdenolist=alltweetsdegotslur[,1:5]
+alltweetsdenolist$text=alltweetsdegotslur$cleantext
+
+#create tweet id
+alltweetsdenolist$postID<-row.names(alltweetsdegotslur)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolist %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolist %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,5:6]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+```
+
+```{r}
+#normalize porb
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+```
+
+```{r}
+#what words all most closely related to nigger
+normalized_prob %>% 
+    filter(word1 == "nigger") %>%
+    arrange(-p_together)
+
+#what words are most closely related to hillbilly
+normalized_prob %>% 
+    filter(word1 == "gringo") %>%
+    arrange(-p_together)
+
+#what words are most closely related to hillbilly
+normalized_prob %>% 
+    filter(word1 == "redneck") %>%
+    arrange(-p_together)
+
+#what words are most closely related to hillbilly
+normalized_prob %>% 
+    filter(word1 == "zionist") %>%
+    arrange(-p_together)
+
+#what words are most closely related to hillbilly
+normalized_prob %>% 
+    filter(word1 == "coon") %>%
+    arrange(-p_together)
+
+normalized_prob %>% 
+    filter(word1 == "chink") %>%
+    arrange(-p_together)
+
+
+```
+
+###Black
+```{r}
+#word embedding for black tweets only
+alltweetsdenolist=alltweetsdegotslur[,1:5] 
+alltweetsdenolist$text=alltweetsdegotslur$cleantext
+alltweetsdenolist$white=alltweetsdegotslur$white
+alltweetsdenolist$jewish=alltweetsdegotslur$jewish
+alltweetsdenolist$hispan=alltweetsdegotslur$hispan
+alltweetsdenolist$asian=alltweetsdegotslur$asian
+alltweetsdenolist$black=alltweetsdegotslur$black
+
+alltweetsdenolistblack=alltweetsdenolist %>%
+  filter(black==1)
+
+#create tweet id
+alltweetsdenolistblack$postID<-row.names(alltweetsdenolistblack)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolistblack %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolistblack %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,10:11]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalizedtableblack=normalized_prob %>% 
+    filter(word1 == "nigger") %>%
+    arrange(-p_together) %>%
+    top_n(60)
+
+
+ggplot(normalizedtableblack, aes(reorder(word2,p_together), p_together)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2)) + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Closely Associated with Racist Tweets on Black",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+#word cloud
+set.seed(1234)
+wordcloud(words = normalizedtableblack$word2, freq = normalizedtableblack$p_together, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "BuPu"))
+```
+
+###White
+```{r}
+#word embedding for white tweets only
+
+
+alltweetsdenolistwhite=alltweetsdenolist %>%
+  filter(white==1)
+
+#create tweet id
+alltweetsdenolistwhite$postID<-row.names(alltweetsdenolistwhite)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolistwhite %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolistwhite %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,10:11]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalized_prob %>% 
+    filter(word1 == "redneck") %>%
+    arrange(-p_together)
+
+normalizedtablewhite=normalized_prob %>% 
+    filter(word1 == "redneck") %>%
+    arrange(-p_together) %>%
+    top_n(30)
+
+
+ggplot(normalizedtablewhite, aes(reorder(word2,p_together), p_together)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2),fill="royalblue4") + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Closely Associated with Racist Tweets on White",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+set.seed(1234)
+wordcloud(words = normalizedtablewhite$word2, freq = normalizedtablewhite$p_together, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Blues"))
+```
+
+###Jewish
+```{r}
+alltweetsdenolistjewish=alltweetsdenolist %>%
+  filter(jewish==1)
+
+#create tweet id
+alltweetsdenolistjewish$postID<-row.names(alltweetsdenolistjewish)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolistjewish %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolistjewish %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,10:11]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalized_prob %>% 
+    filter(word1 == "zionist") %>%
+    arrange(-p_together)
+
+normalizedtablejewish=normalized_prob %>% 
+    filter(word1 == "zionist") %>%
+    arrange(-p_together) %>%
+    top_n(30)
+
+
+ggplot(normalizedtablejewish, aes(reorder(word2,p_together), p_together)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2),fill="pink3") + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Closely Associated with Racist Tweets on Jews",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+set.seed(1234)
+wordcloud(words = normalizedtablejewish$word2, freq = normalizedtablejewish$p_together, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Oranges"))
+```
+
+###Asian
+```{r}
+alltweetsdenolistasian=alltweetsdenolist %>%
+  filter(asian==1)
+
+#create tweet id
+alltweetsdenolistasian$postID<-row.names(alltweetsdenolistasian)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolistasian %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolistasian %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,10:11]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalized_prob %>% 
+    filter(word1 == "chink") %>%
+    arrange(-p_together)
+
+normalizedtableasian=normalized_prob %>% 
+    filter(word1 == "chink") %>%
+    arrange(-p_together) %>%
+    top_n(30)
+
+
+ggplot(normalizedtableasian, aes(reorder(word2,p_together), p_together)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2),fill="#ca0020") + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Closely Associated with Racist Tweets on Asian",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+set.seed(1234)
+wordcloud(words = normalizedtableasian$word2, freq = normalizedtableasian$p_together, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+###Hispanic
+```{r}
+alltweetsdenolisthispan=alltweetsdenolist %>%
+  filter(hispan==1)
+
+#create tweet id
+alltweetsdenolisthispan$postID<-row.names(alltweetsdenolisthispan)
+
+#unigram probabilities
+unigram_probs <- alltweetsdenolisthispan %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- alltweetsdenolisthispan %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+tidy_skipgrams=tidy_skipgrams[,10:11]
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+normalized_prob %>% 
+    filter(word1 == "spic") %>%
+    arrange(-p_together)
+
+normalizedtablehispan=normalized_prob %>% 
+    filter(word1 == "spic") %>%
+    arrange(-p_together) %>%
+    top_n(30)
+
+
+ggplot(normalizedtablehispan, aes(reorder(word2,p_together), p_together)) + geom_bar(stat="identity",width = 0.8, position = position_dodge(width = 1.2),fill="#bababa") + 
+  labs(
+    x="Top 30 Words", y="count",
+    title="Top 30 Words Most Closely Associated with Racist Tweets on Hispanic",
+    caption="\nSource: Data collected from Twitter's REST API via rtweet")+
+    coord_flip()
+
+set.seed(1234)
+wordcloud(words = normalizedtablehispan$word2, freq = normalizedtablehispan$p_together, min.freq = 0,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+
+
+
+##Not use any code below
+```{r}
+#matrix factorization
+pmi_matrix <- normalized_prob %>%
+    mutate(pmi = log10(p_together)) %>%
+    cast_sparse(word1, word2, pmi)
+
+
+```
+
+```{r}
+library(irlba)
+#remove missing data
+pmi_matrix@x[is.na(pmi_matrix@x)] <- 0
+#next we run SVD
+pmi_svd <- irlba(pmi_matrix, 256, maxit = 500)
+#next we output the word vectors:
+word_vectors <- pmi_svd$u
+rownames(word_vectors) <- rownames(pmi_matrix)
+```
+
+```{r}
+#find synonyms
+library(broom)
+
+search_synonyms <- function(word_vectors, selected_vector) {
+
+    similarities <- word_vectors %*% selected_vector %>%
+        tidy() %>%
+        as_tibble() %>%
+        rename(token = .rownames,
+               similarity = unrowname.x.)
+
+    similarities %>%
+        arrange(-similarity)    
+}
+
+#top words associated with nigger
+nigger <- search_synonyms(word_vectors,word_vectors["hate",])
+nigger
+
+#plot in 2D vector space
+#remove missing data
+pmi_matrix@x[is.na(pmi_matrix@x)] <- 0
+#next we run SVD with only 2 dimensions
+pmi_svd <- irlba(pmi_matrix, 2, maxit = 500)
+#next we output the word vectors:
+word_vectors <- pmi_svd$u
+rownames(word_vectors) <- rownames(pmi_matrix)
+```
+
+```{r}
+#second method
+library(reticulate)
+library(purrr)
+library(text2vec) # note that this is a beta version of the package. code/names of funtions that come from this package may change in future versions
+library(dplyr)
+library(Rtsne)
+library(ggplot2)
+library(plotly)
+library(stringr)
+library(keras)
+```
+
+```{r}
+# We want to use original tweets, not retweets:
+elected_no_retweets <- alltweetsde %>%
+  filter(is_retweet == F) %>%
+  select(c("screen_name", "text"))
+
+# Many tweets contain URLs, which we don't want considered in the model:
+elected_no_retweets$text <- str_replace_all(string = elected_no_retweets$text,
+           pattern = "https.+",
+           replacement = "")
+
+tokenizer <- text_tokenizer(num_words = 20000)
+tokenizer %>% fit_text_tokenizer(elected_no_retweets$text)
+```
+
+```{r}
+skipgrams_generator <- function(text, tokenizer, window_size, negative_samples) {
+  gen <- texts_to_sequences_generator(tokenizer, sample(text))
+  function() {
+    skip <- generator_next(gen) %>%
+      skipgrams(
+        vocabulary_size = tokenizer$num_words, 
+        window_size = window_size, 
+        negative_samples = 1
+      )
+    x <- transpose(skip$couples) %>% map(. %>% unlist %>% as.matrix(ncol = 1))
+    y <- skip$labels %>% as.matrix(ncol = 1)
+    list(x, y)
+  }
+}
+
+embedding_size <- 128  # Dimension of the embedding vector.
+skip_window <- 5       # How many words to consider left and right.
+num_sampled <- 1       # Number of negative examples to sample for each word.
+
+input_target <- layer_input(shape = 1)
+input_context <- layer_input(shape = 1)
+
+embedding <- layer_embedding(
+  input_dim = tokenizer$num_words + 1, 
+  output_dim = embedding_size, 
+  input_length = 1, 
+  name = "embedding"
+)
+
+target_vector <- input_target %>% 
+  embedding() %>% 
+  layer_flatten()
+
+context_vector <- input_context %>%
+  embedding() %>%
+  layer_flatten()
+
+dot_product <- layer_dot(list(target_vector, context_vector), axes = 1)
+output <- layer_dense(dot_product, units = 1, activation = "sigmoid")
+
+model <- keras_model(list(input_target, input_context), output)
+model %>% compile(loss = "binary_crossentropy", optimizer = "adam")
+summary(model)
+```
+```{r}
+model %>%
+  fit_generator(
+    skipgrams_generator(elected_no_retweets$text, tokenizer, skip_window, negative_samples), 
+    steps_per_epoch = 200, epochs = 2
+  )
+```
+
+```{r}
+library(tidytext)
+tweet_sentiment <- tidy_alltweetsde %>%
+  inner_join(get_sentiments("bing")) %>%
+    count(created_at, sentiment) 
+
+head(tweet_sentiment)
+
+
+tidy_alltweetsde$date<-as.Date(tidy_alltweetsde$created_at, 
+                                          format="%Y-%m-%d %x")
+
+alltweetsde_sentiment_plot <-
+  tidy_alltweetsde %>%
+    inner_join(get_sentiments("bing")) %>% 
+      filter(sentiment=="negative") %>%
+          count(date, sentiment)
+
+library(ggplot2)
+
+ggplot(alltweetsde_sentiment_plot, aes(x=date, y=n))+
+  geom_line(color="red")+
+    theme_minimal()+
+      ylab("Frequency of Negative Words in Trump's Tweets")+
+        xlab("Date")
+```
+
+```{r}
+alltweetsde_sentiment_plot <-
+  tidy_alltweetsde %>%
+    inner_join(get_sentiments("bing")) %>% 
+      filter(sentiment=="positive") %>%
+          count(date, sentiment)
+
+library(ggplot2)
+
+ggplot(alltweetsde_sentiment_plot, aes(x=date, y=n))+
+  geom_line(color="red")+
+    theme_minimal()+
+      ylab("Frequency of Negative Words in Trump's Tweets")+
+        xlab("Date")
+```
+```{r}
+#delve into nig
+rownumberred=grep('redneck',alltweetsde$text)
+redtweet=alltweetsde[rownumbernig,]
+redtweet=redtweet[,1:7]
+
+#word-embedding
+
+
+
+#create tweet id
+redtweet$postID<-row.names(redtweet)
+
+#unigram probabilities
+unigram_probs <- redtweet %>%
+    unnest_tokens(word, text) %>%
+    count(word, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#skipgram probabilities
+
+tidy_skipgrams <- redtweet %>%
+    unnest_tokens(ngram, text, token = "ngrams", n = 8) %>%
+    mutate(ngramID = row_number()) %>% 
+    unite(skipgramID, postID, ngramID) %>%
+    unnest_tokens(word, ngram)
+
+
+
+skipgram_probs <- tidy_skipgrams %>%
+  widyr::pairwise_count(word, skipgramID, diag = TRUE, sort = TRUE) %>%
+    mutate(p = n / sum(n))
+
+#normalize porb
+normalized_prob <- skipgram_probs %>%
+    filter(n > 20) %>%
+    rename(word1 = item1, word2 = item2) %>%
+    left_join(unigram_probs %>%
+                  select(word1 = word, p1 = p),
+              by = "word1") %>%
+    left_join(unigram_probs %>%
+                  select(word2 = word, p2 = p),
+              by = "word2") %>%
+    mutate(p_together = p / p1 / p2)
+
+#what words all most closely related to nigger
+normalized_prob %>% 
+    filter(word1 == "redneck") %>%
+    arrange(-p_together)
+
+```
+

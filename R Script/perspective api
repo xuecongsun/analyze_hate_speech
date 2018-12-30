@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+"""
+Spyder Editor
+
+This is a temporary script file.
+"""
+
+from googleapiclient import discovery
+import pandas as pd
+import numpy as np
+import time
+
+data=pd.read_csv('/Users/emmasun/tweets.csv')
+
+datatest=data[0:5001]
+
+API_KEY='AIzaSyA5sDIY_S1m0upPLJ_dWWeRA5Pf2rLwGmM'
+
+# Generates API client object dynamically based on service name and version.
+service = discovery.build('commentanalyzer', 'v1alpha1', developerKey=API_KEY)
+
+sLength=len(datatest['text'])
+toxicityscorecol=pd.Series(resultlist)
+datatest['toxicity']=toxicityscorecol
+datatest['toxicity'][3]=0
+
+resultlist=[]
+
+for i in range(5001):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': datatest.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    resultlist.append(toxicityscore)
+    
+datatest.to_csv("/Users/emmasun/first5000.csv", sep='|')
+
+datatest2=data[5001:10002]
+resultlist2=[]
+
+for i in range(5001):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': datatest2.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    resultlist2.append(toxicityscore)
+
+type(resultlist2[0])
+sLength=len(datatest2['text'])
+toxicityscorecol2=pd.DataFrame({'ToxicityFinalf':resultlist2})
+final2=datatest2.join(toxicityscorecol2)
+datatest['toxicity'][3]=0
+
+toxicityscorecol2.index=range(5001,10002)
+
+toxicityscorecol2.to_csv("/Users/emmasun/second5000.csv", sep='|')
+final2.to_csv("/Users/emmasun/second5000withtweets.csv", sep='|')
+final2.to_csv("/Users/emmasun/second5000withtweetsnew.csv", sep='|')
+
+datareadin2=pd.read_csv("/Users/emmasun/second5000withtweetsnew.csv",sep='|')
+
+datatest3=data[10002:20000]
+resultlist3=[]
+
+for i in range(9997):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': datatest3.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    resultlist3.append(toxicityscore)
+
+
+
+sLength=len(datatest3['text'])
+toxicityscorecol3=pd.DataFrame({'ToxicityFinalf':resultlist3})
+toxicityscorecol3.index=range(10003,20000)
+final3=datatest3.join(toxicityscorecol3)
+
+
+final3.to_csv("/Users/emmasun/third10000withtweetsnew.csv", sep='|')
+
+datatest4=data[20000:29682]
+resultlist4=[]
+
+for i in range(9681):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': datatest4.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    resultlist4.append(toxicityscore)
+
+
+
+sLength=len(datatest4['text'])
+toxicityscorecol4=pd.DataFrame({'ToxicityFinalf':resultlist4})
+toxicityscorecol4.index=range(20000,29681)
+final4=datatest4.join(toxicityscorecol4)
+
+
+final4.to_csv("/Users/emmasun/last10000withtweets.csv", sep='|')
+
+analyze_request = {
+  'comment': { 'text': '@StephenakaBman @gregcote Miami is not SEC country - I was using “SEC Country” as a polite way of saying redneck country, I guess I shouldn’t be too surprised I had to explain this.' },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+response = service.comments().analyze(body=analyze_request).execute()
+toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+
+
+result=[]
+
+for i in range(29681):
+    if i%1000==0 and i!=0:
+        print("sleeping")
+        time.sleep(100)  
+    try:
+        analyze_request = {
+  'comment': { 'text': data.iloc[i]['text'] },
+  'requestedAttributes': {'TOXICITY': {}}
+}
+        response = service.comments().analyze(body=analyze_request).execute()
+        toxicityscore=response['attributeScores']["TOXICITY"]['summaryScore']['value']
+        
+    except:
+        toxicityscore = 0
+    
+    result.append(toxicityscore)
+    
+sLength=len(data['text'])
+toxicityscorecolfinal=pd.DataFrame({'Toxicity':result})
+
+finalfinal=data.join(toxicityscorecolfinal)
+
+finalfinal.to_csv("/Users/emmasun/labeltweets.csv", sep='|')
+
+finaltest=pd.read_csv("/Users/emmasun/labeltweets.txt", sep=' ')
+
+finalfinal.to_csv('/Users/emmasun/labeltweets.txt', index=None, sep=' ')
